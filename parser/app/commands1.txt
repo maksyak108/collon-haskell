@@ -1,0 +1,4 @@
+Push 5
+Push 3
+Add
+Print "Result"

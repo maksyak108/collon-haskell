@@ -1,0 +1,4 @@
+Push 1
+Push 2
+Swap
+Print "Result"
