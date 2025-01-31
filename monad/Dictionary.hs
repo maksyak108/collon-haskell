@@ -1,10 +1,12 @@
 import qualified Data.Map as Map
 import Data.Map (Map)
-import Debug.Trace (trace)  -- Импортируем trace для отладки
+import Debug.Trace (trace)
+import Text.Regex.TDFA ((=~))
 
 -- Типы ошибок
 data Error = WordExists      -- Слово уже существует
            | WordNotFound    -- Слово не найдено
+           | StackMismatch String -- Несоответствие стека
            deriving (Show)
 
 -- Типы команд
@@ -16,19 +18,26 @@ data Command = AddWord String String  -- Добавить слово и его �
 type Stack = [Int]                    -- Стек целых чисел
 type Dictionary = Map String String   -- Словарь, где ключ - слово, значение - определение
 
+-- Функция для проверки комментария про стек
+parseStackComment :: String -> Either Error (Int, Int)
+parseStackComment definition =
+    case definition =~ "\\( ([a-z ]*) -- ([a-z ]*) \\)" :: [[String]] of
+        [[_, before, after]] -> Right (length (words before), length (words after))
+        _ -> Left (StackMismatch "Невозможно проверить комментарий про стек")
+
 -- Интерпретатор для выполнения команд
 runCommand :: Command -> Stack -> Dictionary -> Either Error Stack
--- Добавление слова в словарь
 runCommand (AddWord word definition) stack dict
-    | Map.member word dict = Left WordExists  -- Если слово уже существует, ошибка
-    | otherwise = Right stack  -- Если добавление прошло успешно, возвращаем стек без изменений
+    | Map.member word dict = Left WordExists
+    | otherwise =
+        case parseStackComment definition of
+            Right _ -> Right stack
+            Left err -> Left err
 
--- Получение слова из словаря
 runCommand (GetWord word) stack dict =
     case Map.lookup word dict of
-        Just definition -> 
-            trace ("Определение слова: " ++ definition) (Right stack)  -- Выводим определение через trace
-        Nothing -> Left WordNotFound  -- Если слово не найдено, ошибка
+        Just definition -> trace ("Определение слова: " ++ definition) (Right stack)
+        Nothing -> Left WordNotFound
 
 interactive :: IO ()
 interactive = do
@@ -40,9 +49,15 @@ interactive = do
         command <- getLine
         case words command of
             ("add" : word : definition) -> do
-                let newDict = Map.insert word (unwords definition) dict
-                putStrLn $ "Слово \"" ++ word ++ "\" добавлено!"
-                loop newDict
+                let def = unwords definition
+                case parseStackComment def of
+                    Right _ -> do
+                        let newDict = Map.insert word def dict
+                        putStrLn $ "Слово \"" ++ word ++ "\" добавлено!"
+                        loop newDict
+                    Left err -> do
+                        putStrLn $ "Ошибка: " ++ show err
+                        loop dict
             ("get" : word : _) -> do
                 case Map.lookup word dict of
                     Just def -> putStrLn $ "Определение: " ++ def
@@ -52,23 +67,3 @@ interactive = do
             _ -> do
                 putStrLn "Неверная команда. Попробуйте ещё раз."
                 loop dict
-
--- Тестирование команд
-testCommands :: IO ()
-testCommands = do
-    let dict = Map.empty :: Dictionary  -- Начинаем с пустого словаря
-    -- Пример добавления слова в словарь
-    let dictAfterAdd = Map.insert "hello" "Привет" dict
-    case runCommand (AddWord "hello" "Привет") [] dictAfterAdd of
-        Left err -> putStrLn $ "Ошибка: " ++ show err
-        Right stack -> putStrLn $ "Итоговый стек: " ++ show stack
-
-    -- Пример получения слова из словаря
-    case runCommand (GetWord "hello") [] dictAfterAdd of
-        Left err -> putStrLn $ "Ошибка: " ++ show err
-        Right stack -> putStrLn $ "Итоговый стек: " ++ show stack
-
-    -- Пример получения несуществующего слова
-    case runCommand (GetWord "world") [] dictAfterAdd of
-        Left err -> putStrLn $ "Ошибка: " ++ show err
-        Right stack -> putStrLn $ "Итоговый стек: " ++ show stack
